@@ -14,7 +14,7 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.provider.Settings;
-import android.view.AccessibilityNodeProvider;
+import android.view.accessibility.AccessibilityNodeProvider;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
