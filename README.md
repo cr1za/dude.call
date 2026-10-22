@@ -12,7 +12,7 @@ A single-purpose, entirely native Android app. Black immersive screen, one giant
 - An accessible permission-recovery panel opens Android app settings, plus READY TO CALL feedback when the user returns with permission.
 - Responsive portrait/landscape screens, fullscreen preference, display-cutout safety, reduced-motion accommodation, TalkBack virtual controls and announcements, and black protected Recent Apps/screenshot previews during number setup.
 - Custom embedded synthesized WAV effects, played as media without requesting audio focus, automatically muted while headphones or Bluetooth audio are connected; existing effects fade out over 0.1s on connection.
-- GitHub Actions debug APK build. No custom signing keys or secrets necessary.
+- GitHub Actions debug APK build. Includes a project debug keystore for consistent debug builds; never use that key for a production release.
 
 ## Build
 
@@ -26,18 +26,18 @@ APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed). To build on Git
 
 ## Upload to GitHub from Android / Termux
 
-Download the ZIP and the separate `dude-call-push-termux.sh` helper into your phone's Downloads, then in Termux:
+Download the v1.2 source ZIP and `dude-call-v1.2-over-apps-upload.sh` into your phone's Downloads, then in Termux:
 
 ```sh
 termux-setup-storage
-bash ~/storage/downloads/dude-call-push-termux.sh
+bash ~/storage/downloads/dude-call-v1.2-over-apps-upload.sh
 ```
 
 The helper installs Git/GitHub CLI, opens a GitHub browser login if needed, checks that you are logged in as **cr1za**, copies the project into `cr1za/dude.call`, and pushes it to `main` to trigger the APK workflow.
 
 ## Permissions and privacy
 
-The **only app permissions** declared are `CALL_PHONE` and `READ_PHONE_STATE` (to detect active calls when available). No phone number is sent to any app-owned server. Android's built-in phone app handles outgoing calls and network errors. The first-launch setup uses Android's `FLAG_SECURE` to hide captured images and Recents thumbnails, released after setup completes.
+Phone permissions are `CALL_PHONE` and `READ_PHONE_STATE` (when available). Version 1.2 also declares `SYSTEM_ALERT_WINDOW` and Android foreground-service permissions, solely to show a user-enabled floating button above other apps. No phone number is sent to any app-owned server. Android's built-in phone app handles outgoing calls and network errors. The first-launch setup uses Android's `FLAG_SECURE` to hide captured images and Recents thumbnails, released after setup completes.
 
 ## Platform details
 
@@ -107,3 +107,41 @@ Official Android documentation:
 - https://developer.android.com/develop/ui/views/appwidgets
 - https://developer.android.com/guide/components/activities/secure-bal
 - https://developer.android.com/reference/android/Manifest.permission#SYSTEM_ALERT_WINDOW
+
+## Version 1.2: floating red button above other Android apps
+
+New in v1.2: **dude.call floating overlay**. This is a genuine Android `WindowManager`
+`TYPE_APPLICATION_OVERLAY`, not a home-screen-only widget. The glossy red button
+has a transparent background and follows you over ordinary applications. The
+original fullscreen button and the home-screen widget continue to work.
+
+### Enable
+
+1. Install/update the APK (same application ID and project debug signing key).
+2. Open dude.call. Complete the phone-number setup first if necessary.
+3. At the **FLOATING RED BUTTON** prompt, choose **ENABLE**.
+4. In Android Settings, explicitly allow **Display over other apps** for dude.call.
+5. Return to dude.call. If asked, grant the regular phone-call permission.
+6. Press Home or open another app: the movable button remains at the screen edge.
+
+**Tap and release** the red dome to place one call; **hold for at least 0.45s and
+then drag** to move the button. The glossy black base is not a call target.
+The button does not draw a wallpaper or black background behind itself. Other
+apps remain touchable outside the small floating button rectangle.
+
+To remove the overlay, expand notifications and tap **STOP** on the persistent
+**dude.call floating button** notification. Relaunch dude.call to enable it
+again. The app never starts the overlay at boot and never makes calls without
+a deliberate button gesture. Permission may be revoked in Android Settings.
+
+Implementation: `SYSTEM_ALERT_WINDOW`, `Settings.canDrawOverlays`, and
+`Settings.ACTION_MANAGE_OVERLAY_PERMISSION`; a `specialUse` typed foreground
+service for Android 14+; translucent `TYPE_APPLICATION_OVERLAY` window; and
+`TelecomManager.placeCall` for calls initiated while another app is visible.
+Android may suppress overlays over sensitive screens (permission dialogs,
+lock screen, or secure apps). Foreground services show a persistent user-visible
+notification. The system can still stop the service for resource or policy reasons.
+
+No overlay is displayed before user permission. No Accessibility Service or
+root privileges are used. Phone number storage is unchanged. Screenshots and
+screen recordings remain blocked during first-run number setup.

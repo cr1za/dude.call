@@ -2,6 +2,7 @@ package com.cr1za.dudecall;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -33,6 +34,9 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
     private static final String PERMISSION_REQUESTS = "permission_attempts";
     private static final int PERMISSIONS = 41;
     private static final int SETTINGS = 42;
+    private static final int OVERLAY_SETTINGS = 43;
+    private static final int OVERLAY_CALL_PERMISSION = 44;
+    private static final String OVERLAY_WANTED = "overlay_enabled";
     private static final int RED = Color.rgb(242, 13, 23);
 
     private SharedPreferences prefs;
@@ -41,6 +45,8 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
     private String savedNumber;
     private boolean launchBusy;
     private boolean settingsLaunched;
+    private boolean overlayPromptShown;
+    private boolean overlaySettingsLaunched;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override public void onCreate(Bundle savedInstanceState) {
@@ -142,6 +148,8 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         if (!isPlausible(number)) return false;
         if (!prefs.edit().putString(PHONE, number).commit()) return false;
         savedNumber = number;
+        // Present optional overlay setup only after the full confirmation transition.
+        handler.postDelayed(this::offerFloatingButton, 1400);
         return true;
     }
 
@@ -200,6 +208,12 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(requestCode, permissions, grants);
+        if (requestCode == OVERLAY_CALL_PERMISSION) {
+            if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED)
+                startFloatingButton();
+            else arcade.showTimedMessage("PHONE PERMISSION REQUIRED", 2000);
+            return;
+        }
         if (requestCode != PERMISSIONS) return;
         if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
             requestCall();
@@ -222,6 +236,11 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == OVERLAY_SETTINGS && overlaySettingsLaunched) {
+            overlaySettingsLaunched = false;
+            if (Settings.canDrawOverlays(this)) startFloatingButton();
+            return;
+        }
         if (requestCode == SETTINGS && settingsLaunched) {
             settingsLaunched = false;
             if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED)
@@ -235,6 +254,60 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         if (arcade != null) {
             arcade.refreshAudioRoute();
             if (launchBusy) { launchBusy = false; arcade.setCallLaunching(false); }
+            if (savedNumber != null && !savedNumber.isEmpty() && !overlayPromptShown &&
+                    !overlaySettingsLaunched) {
+                handler.postDelayed(this::offerFloatingButton, 500);
+            }
+        }
+    }
+
+    /** Asked only from the visible activity, never from the background or at boot. */
+    private void offerFloatingButton() {
+        if (isFinishing() || isDestroyed() || overlayPromptShown ||
+                savedNumber == null || savedNumber.isEmpty()) return;
+        overlayPromptShown = true;
+        if (prefs.getBoolean(OVERLAY_WANTED, false)) {
+            startFloatingButton();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("FLOATING RED BUTTON")
+                .setMessage("Keep your red call button on top of other apps. " +
+                        "Android will ask you to allow Display over other apps. " +
+                        "A notification will let you stop it anytime.")
+                .setPositiveButton("ENABLE", (dialog, which) -> {
+                    prefs.edit().putBoolean(OVERLAY_WANTED, true).apply();
+                    startFloatingButton();
+                })
+                .setNegativeButton("NOT NOW", (dialog, which) -> { })
+                .show();
+    }
+
+    private void startFloatingButton() {
+        if (savedNumber == null || savedNumber.isEmpty() || isFinishing()) return;
+        if (!Settings.canDrawOverlays(this)) {
+            try {
+                overlaySettingsLaunched = true;
+                Intent permission = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName()));
+                startActivityForResult(permission, OVERLAY_SETTINGS);
+            } catch (ActivityNotFoundException exception) {
+                overlaySettingsLaunched = false;
+                arcade.showTimedMessage("ALLOW DISPLAY OVER APPS", 2000);
+            }
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.CALL_PHONE,
+                    Manifest.permission.READ_PHONE_STATE}, OVERLAY_CALL_PERMISSION);
+            return;
+        }
+        try {
+            Intent service = new Intent(this, FloatingCallService.class);
+            service.setAction(FloatingCallService.ACTION_START);
+            startForegroundService(service);
+        } catch (RuntimeException ignored) {
+            arcade.showTimedMessage("FLOATING BUTTON UNAVAILABLE", 2000);
         }
     }
 

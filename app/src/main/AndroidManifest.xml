@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-feature android:name="android.hardware.telephony" android:required="true" />
     <application android:label="dude.call" android:theme="@style/AppTheme"
         android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"
@@ -21,6 +24,12 @@
             android:theme="@style/WidgetCallTheme"
             android:exported="false"
             android:excludeFromRecents="true" android:launchMode="singleTop" />
+        <!-- User-initiated system overlay. Notification lets the user stop it anytime. -->
+        <service android:name=".FloatingCallService" android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Persistent, user-enabled movable call button over other apps" />
+        </service>
         <receiver android:name=".DudeCallWidgetProvider" android:exported="true"
             android:label="dude.call button">
             <intent-filter>
