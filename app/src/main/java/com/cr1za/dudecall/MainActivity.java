@@ -59,6 +59,7 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         audio = new ArcadeAudio(this);
         arcade = new ArcadeView(this, this, audio, savedNumber != null && !savedNumber.isEmpty());
         setContentView(arcade);
+        handleWidgetAction(getIntent());
         arcade.setOnApplyWindowInsetsListener((view, insets) -> {
             if (android.os.Build.VERSION.SDK_INT >= 28) {
                 DisplayCutout cutout = insets.getDisplayCutout();
@@ -87,6 +88,22 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
         if (arcade != null) arcade.onDeviceConfigurationChanged();
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleWidgetAction(intent);
+    }
+
+    private void handleWidgetAction(Intent intent) {
+        if (arcade == null || intent == null) return;
+        String action = intent.getAction();
+        if ("com.cr1za.dudecall.SHOW_PERMISSION_PANEL".equals(action)) {
+            arcade.showPermissionPanel();
+        } else if ("com.cr1za.dudecall.SHOW_CALL_ACTIVE".equals(action)) {
+            arcade.showTimedMessage("CALL ALREADY ACTIVE", 2000);
+        }
     }
 
     @Override public void onBackPressed() {

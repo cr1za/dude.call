@@ -55,3 +55,55 @@ The **only app permissions** declared are `CALL_PHONE` and `READ_PHONE_STATE` (t
 - `.github/workflows/build-apk.yml` — continuous Android debug APK builds.
 
 This project has been source/XML checked, but compiling an APK locally requires the Android SDK and Gradle; the GitHub workflow is the intended first full compilation check.
+
+## Launcher icon (v1.0.1)
+
+The home-screen icon is a glossy red arcade button on a fully transparent RGBA
+canvas, including legacy PNG assets and Android 8+ adaptive icon foreground and
+transparent background layers. The startup splash screen deliberately keeps its
+red background. No monochrome themed icon is provided. Android launchers may
+still impose their own masks, icon tiles, shadows or backgrounds; the app cannot
+force a particular launcher to show transparency. If an old tile stays after
+updating, remove and re-add the home-screen shortcut or refresh the launcher.
+
+## Version 1.1.0 — transparent home-screen button widget
+
+Android's `AppWidgetProvider` + `RemoteViews` APIs let the red arcade button live
+**on the home screen**, directly over the user's wallpaper. Unlike an always-on-top
+overlay, this **does not** need `SYSTEM_ALERT_WINDOW`, a background service, or
+an extra permission. The custom-painted fullscreen app remains unchanged.
+
+After installing/updating the APK, **long-press an empty area of the Android home
+screen → Widgets → dude.call button → add**. Move or resize the red button as
+wanted. There is no square background drawn by the widget itself; the image is
+an RGBA PNG with alpha transparency. Some launchers may still impose widget
+padding or unusual resizing rules.
+
+- Tap the widget to call the same stored number using the normal Android call
+  permission model. If there is no saved number, it opens the original first-run
+  number-entry screen. If CALL_PHONE needs granting, Android requests permission;
+  a denial opens the existing in-app OPEN SETTINGS warning.
+- A direct widget tap is a click from Android's launcher and triggers a very
+  brief **transparent** Activity to request permissions/check call state/launch
+  the call. Unlike the fullscreen arcade button, widget views cannot reliably
+  animate a finger-down press and bounce through `RemoteViews`. Android also
+  owns the eventual in-call screen.
+- The on-screen widget stays on the **home screen only**; it does not hover over
+  unrelated apps. System-wide floating bubbles need the restricted special
+  `SYSTEM_ALERT_WINDOW` permission and extra lifecycle handling.
+- Widget taps have a rectangular touch area even where the PNG is transparent:
+  Android widgets do not expose per-pixel alpha hit-testing.
+- The existing app ID and preferences are unchanged, but **APK updates require
+  the SAME signing key**. Earlier GitHub Actions debug builds may have used an
+  ephemeral keystore, so Android might reject the first v1.1 update with a
+  signature mismatch. To avoid this happening on future builds, v1.1 includes
+  a fixed public **debug-only** keystore in `app/debug.keystore`. Never use this
+  key for release / Play Store distribution. If Android rejects installation,
+  do not uninstall casually: doing so would erase the saved number. Back up
+  the number out of band and re-enter it if a reinstall becomes necessary.
+
+Official Android documentation:
+- https://developer.android.com/develop/ui/views/appwidgets/overview
+- https://developer.android.com/develop/ui/views/appwidgets
+- https://developer.android.com/guide/components/activities/secure-bal
+- https://developer.android.com/reference/android/Manifest.permission#SYSTEM_ALERT_WINDOW

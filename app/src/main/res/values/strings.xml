@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">dude.call</string>
+    <string name="widget_button_label">Call now</string>
+    <string name="widget_description">Glossy red arcade call button, floating on your home screen with a transparent background.</string>
 </resources>

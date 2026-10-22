@@ -16,5 +16,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- This translucent Activity is entered only by a home-screen widget tap. -->
+        <activity android:name=".WidgetCallActivity"
+            android:theme="@style/WidgetCallTheme"
+            android:exported="false"
+            android:excludeFromRecents="true" android:launchMode="singleTop" />
+        <receiver android:name=".DudeCallWidgetProvider" android:exported="true"
+            android:label="dude.call button">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/dude_call_widget" />
+        </receiver>
     </application>
 </manifest>
