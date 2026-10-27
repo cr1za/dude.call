@@ -269,7 +269,7 @@ public final class FloatingCallService extends Service {
                 params.y=startY+Math.round(dy);
                 clampPosition();
                 try {manager.updateViewLayout(button,params);} catch (RuntimeException ignored) { }
-                if (removeTarget != null) removeTarget.setSelected(overRemove());
+                if (removeTarget != null) removeTarget.setRemoveHighlighted(overRemove());
             } else if (!onRed(event.getX(index),event.getY(index))) {
                 canceled=true;
             }
@@ -398,7 +398,7 @@ public final class FloatingCallService extends Service {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private boolean selected;
         RemoveTarget(Context context) {super(context);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}
-        void setSelected(boolean next) {if (selected!=next){selected=next;invalidate();}}
+        void setRemoveHighlighted(boolean next) {if (selected!=next){selected=next;invalidate();}}
         @Override protected void onDraw(Canvas c) {
             super.onDraw(c);
             float pad=dp(4);
