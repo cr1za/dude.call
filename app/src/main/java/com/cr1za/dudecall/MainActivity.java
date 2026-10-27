@@ -3,6 +3,10 @@ package com.cr1za.dudecall;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -22,8 +26,9 @@ import android.content.Context;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.view.WindowInsets;
 import android.view.DisplayCutout;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 
 import java.util.Locale;
 
@@ -36,6 +41,8 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
     private static final int SETTINGS = 42;
     private static final int OVERLAY_SETTINGS = 43;
     private static final int OVERLAY_CALL_PERMISSION = 44;
+    private static final int OVERLAY_NOTIFICATION_PERMISSION = 45;
+    private static final String NOTIFICATION_ASKED = "overlay_notification_asked";
     private static final String OVERLAY_WANTED = "overlay_enabled";
     private static final int RED = Color.rgb(242, 13, 23);
 
@@ -45,8 +52,10 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
     private String savedNumber;
     private boolean launchBusy;
     private boolean settingsLaunched;
-    private boolean overlayPromptShown;
     private boolean overlaySettingsLaunched;
+    private boolean overlayEnablePending;
+    private long undoDeadline;
+    private OnBackInvokedCallback modernBackCallback;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override public void onCreate(Bundle savedInstanceState) {
@@ -65,14 +74,19 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         audio = new ArcadeAudio(this);
         arcade = new ArcadeView(this, this, audio, savedNumber != null && !savedNumber.isEmpty());
         setContentView(arcade);
+        if (Build.VERSION.SDK_INT >= 33) {
+            modernBackCallback = this::handleBack;
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT, modernBackCallback);
+        }
         handleWidgetAction(getIntent());
         arcade.setOnApplyWindowInsetsListener((view, insets) -> {
             if (android.os.Build.VERSION.SDK_INT >= 28) {
                 DisplayCutout cutout = insets.getDisplayCutout();
-                if (cutout != null) {
-                    arcade.setSafeInsets(cutout.getSafeInsetLeft(), cutout.getSafeInsetTop(),
-                            cutout.getSafeInsetRight(), cutout.getSafeInsetBottom());
-                }
+                arcade.setSafeInsets(cutout == null ? 0 : cutout.getSafeInsetLeft(),
+                        cutout == null ? 0 : cutout.getSafeInsetTop(),
+                        cutout == null ? 0 : cutout.getSafeInsetRight(),
+                        cutout == null ? 0 : cutout.getSafeInsetBottom());
             }
             return insets;
         });
@@ -112,10 +126,14 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         }
     }
 
-    @Override public void onBackPressed() {
+    private void handleBack() {
         if (arcade != null && arcade.dismissPermissionPanel()) return;
         // Unfinished setup is deliberately NOT saved here.
         finish();
+    }
+
+    @Override public void onBackPressed() {
+        handleBack();
     }
 
     @Override public void setPrivateScreen(boolean privateScreen) {
@@ -148,8 +166,6 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         if (!isPlausible(number)) return false;
         if (!prefs.edit().putString(PHONE, number).commit()) return false;
         savedNumber = number;
-        // Present optional overlay setup only after the full confirmation transition.
-        handler.postDelayed(this::offerFloatingButton, 1400);
         return true;
     }
 
@@ -159,6 +175,45 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         String digits = number.replace("+", "");
         if (digits.matches("([0-9])\\1+")) return false;
         return !number.startsWith("+0") && PhoneNumberUtils.isGlobalPhoneNumber(number);
+    }
+
+    @Override public boolean isFloatingEnabled() {
+        return prefs != null && prefs.getBoolean(OVERLAY_WANTED, false) &&
+                FloatingCallService.isVisible();
+    }
+
+    @Override public boolean isFloatingUndoAvailable() {
+        return SystemClock.uptimeMillis() < undoDeadline;
+    }
+
+    @Override public void toggleFloating() {
+        if (isFloatingEnabled()) {
+            disableFloating(true);
+        } else if (isFloatingUndoAvailable()) {
+            undoDeadline = 0;
+            overlayEnablePending = true;
+            continueFloatingEnable();
+        } else {
+            overlayEnablePending = true;
+            continueFloatingEnable();
+        }
+        arcade.invalidate();
+    }
+
+    private void disableFloating(boolean offerUndo) {
+        overlayEnablePending = false;
+        prefs.edit().putBoolean(OVERLAY_WANTED, false).apply();
+        undoDeadline = offerUndo ? SystemClock.uptimeMillis() + 3000 : 0;
+        Intent stop = new Intent(this, FloatingCallService.class).setAction(FloatingCallService.ACTION_STOP);
+        // This also works if the service is already gone.
+        try { startService(stop); } catch (RuntimeException ignored) { stopService(stop); }
+        arcade.invalidate();
+        if (offerUndo) {
+            long deadline = undoDeadline;
+            handler.postDelayed(() -> {
+                if (undoDeadline == deadline) { undoDeadline = 0; arcade.invalidate(); }
+            }, 3000);
+        }
     }
 
     @Override public void requestCall() {
@@ -178,6 +233,7 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
             arcade.showTimedMessage("CALL ALREADY ACTIVE", 2000);
             return;
         }
+        if (!CallGate.tryAcquire(prefs)) return;
         launchBusy = true;
         arcade.setCallLaunching(true);
         try {
@@ -191,6 +247,7 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
                 }
             }, 5000);
         } catch (SecurityException | ActivityNotFoundException ex) {
+            CallGate.rollback(prefs);
             launchBusy = false;
             arcade.setCallLaunching(false);
             // Android handles normal call and network errors. No redundant custom toast.
@@ -210,8 +267,20 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         super.onRequestPermissionsResult(requestCode, permissions, grants);
         if (requestCode == OVERLAY_CALL_PERMISSION) {
             if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED)
-                startFloatingButton();
-            else arcade.showTimedMessage("PHONE PERMISSION REQUIRED", 2000);
+                continueFloatingEnable();
+            else {
+                if (!shouldShowRequestPermissionRationale(Manifest.permission.CALL_PHONE)) {
+                    arcade.showPermissionPanel();
+                } else {
+                    overlayEnablePending = false;
+                    arcade.showTimedMessage("PHONE PERMISSION REQUIRED", 2000);
+                }
+            }
+            return;
+        }
+        if (requestCode == OVERLAY_NOTIFICATION_PERMISSION) {
+            // Notification permission is optional. An in-app OFF control remains available.
+            continueFloatingEnable();
             return;
         }
         if (requestCode != PERMISSIONS) return;
@@ -238,14 +307,23 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == OVERLAY_SETTINGS && overlaySettingsLaunched) {
             overlaySettingsLaunched = false;
-            if (Settings.canDrawOverlays(this)) startFloatingButton();
+            if (Settings.canDrawOverlays(this) && overlayEnablePending) continueFloatingEnable();
+            else {
+                overlayEnablePending = false;
+                prefs.edit().putBoolean(OVERLAY_WANTED, false).apply();
+                arcade.invalidate();
+            }
             return;
         }
         if (requestCode == SETTINGS && settingsLaunched) {
             settingsLaunched = false;
-            if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED)
-                arcade.showTimedMessage("READY TO CALL", 2000);
-            else arcade.showPermissionPanel();
+            if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+                if (overlayEnablePending) continueFloatingEnable();
+                else arcade.showTimedMessage("READY TO CALL", 2000);
+            } else {
+                overlayEnablePending = false;
+                arcade.showPermissionPanel();
+            }
         }
     }
 
@@ -254,64 +332,111 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         if (arcade != null) {
             arcade.refreshAudioRoute();
             if (launchBusy) { launchBusy = false; arcade.setCallLaunching(false); }
-            if (savedNumber != null && !savedNumber.isEmpty() && !overlayPromptShown &&
-                    !overlaySettingsLaunched) {
-                handler.postDelayed(this::offerFloatingButton, 500);
-            }
+            // Do NOT auto-start, and do not race the service's asynchronous launch.
+            // The UI reads the live service state, not just the saved flag.
+            arcade.invalidate();
         }
     }
 
-    /** Asked only from the visible activity, never from the background or at boot. */
-    private void offerFloatingButton() {
-        if (isFinishing() || isDestroyed() || overlayPromptShown ||
-                savedNumber == null || savedNumber.isEmpty()) return;
-        overlayPromptShown = true;
-        if (prefs.getBoolean(OVERLAY_WANTED, false)) {
-            startFloatingButton();
-            return;
-        }
-        new AlertDialog.Builder(this)
-                .setTitle("FLOATING RED BUTTON")
-                .setMessage("Keep your red call button on top of other apps. " +
-                        "Android will ask you to allow Display over other apps. " +
-                        "A notification will let you stop it anytime.")
-                .setPositiveButton("ENABLE", (dialog, which) -> {
-                    prefs.edit().putBoolean(OVERLAY_WANTED, true).apply();
-                    startFloatingButton();
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void showOverlayPermissionExplanation() {
+        if (isFinishing()) return;
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(20), dp(20), dp(20), dp(20));
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF68121A, 0xFF270408});
+        bg.setCornerRadius(dp(18));
+        bg.setStroke(dp(2), RED);
+        body.setBackground(bg);
+        TextView title = new TextView(this);
+        title.setText("FLOATING BUTTON");
+        title.setTextSize(20);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setTextColor(Color.WHITE);
+        title.setGravity(android.view.Gravity.CENTER);
+        body.addView(title);
+        TextView text = new TextView(this);
+        text.setText("Allow dude.call to display the red call button over other apps? " +
+                "Android requires your permission. You can turn it OFF anytime.");
+        text.setTextColor(Color.WHITE);
+        text.setTextSize(15);
+        text.setGravity(android.view.Gravity.CENTER);
+        text.setPadding(0,dp(16),0,dp(16));
+        body.addView(text);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(body)
+                .setPositiveButton("OPEN SETTINGS", (d, which) -> openOverlaySettings())
+                .setNegativeButton("CANCEL", (d, which) -> {
+                    overlayEnablePending = false;
+                    arcade.invalidate();
                 })
-                .setNegativeButton("NOT NOW", (dialog, which) -> { })
-                .show();
+                .create();
+        dialog.setOnCancelListener(d -> { overlayEnablePending = false; arcade.invalidate(); });
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(RED);
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.WHITE);
+        });
+        dialog.show();
     }
 
-    private void startFloatingButton() {
-        if (savedNumber == null || savedNumber.isEmpty() || isFinishing()) return;
+    private void openOverlaySettings() {
+        try {
+            overlaySettingsLaunched = true;
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, OVERLAY_SETTINGS);
+        } catch (RuntimeException failure) {
+            overlaySettingsLaunched = false;
+            overlayEnablePending = false;
+            arcade.showTimedMessage("ALLOW DISPLAY OVER APPS", 2000);
+        }
+    }
+
+    private void continueFloatingEnable() {
+        if (!overlayEnablePending || savedNumber == null || isFinishing()) return;
         if (!Settings.canDrawOverlays(this)) {
-            try {
-                overlaySettingsLaunched = true;
-                Intent permission = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + getPackageName()));
-                startActivityForResult(permission, OVERLAY_SETTINGS);
-            } catch (ActivityNotFoundException exception) {
-                overlaySettingsLaunched = false;
-                arcade.showTimedMessage("ALLOW DISPLAY OVER APPS", 2000);
-            }
+            showOverlayPermissionExplanation();
             return;
         }
         if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+            int attempts = prefs.getInt(PERMISSION_REQUESTS, 0);
+            if (attempts > 0 && !shouldShowRequestPermissionRationale(Manifest.permission.CALL_PHONE)) {
+                arcade.showPermissionPanel();
+                return;
+            }
+            prefs.edit().putInt(PERMISSION_REQUESTS, attempts + 1).apply();
             requestPermissions(new String[]{Manifest.permission.CALL_PHONE,
                     Manifest.permission.READ_PHONE_STATE}, OVERLAY_CALL_PERMISSION);
             return;
         }
+        if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+                !prefs.getBoolean(NOTIFICATION_ASKED, false)) {
+            prefs.edit().putBoolean(NOTIFICATION_ASKED, true).apply();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, OVERLAY_NOTIFICATION_PERMISSION);
+            return;
+        }
+        overlayEnablePending = false;
+        undoDeadline = 0;
+        prefs.edit().putBoolean(OVERLAY_WANTED, true).apply();
         try {
-            Intent service = new Intent(this, FloatingCallService.class);
-            service.setAction(FloatingCallService.ACTION_START);
+            Intent service = new Intent(this, FloatingCallService.class).setAction(FloatingCallService.ACTION_START);
             startForegroundService(service);
-        } catch (RuntimeException ignored) {
+            handler.postDelayed(() -> arcade.invalidate(), 300);
+        } catch (RuntimeException e) {
+            prefs.edit().putBoolean(OVERLAY_WANTED, false).apply();
             arcade.showTimedMessage("FLOATING BUTTON UNAVAILABLE", 2000);
         }
     }
 
     @Override protected void onDestroy() {
+        if (Build.VERSION.SDK_INT >= 33 && modernBackCallback != null) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(modernBackCallback);
+        }
         handler.removeCallbacksAndMessages(null);
         if (audio != null) audio.release();
         super.onDestroy();

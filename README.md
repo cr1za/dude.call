@@ -1,3 +1,15 @@
+# dude.call v1.3
+
+Version 1.3.0 adds a compact FLOATING ON/OFF control under the fullscreen call button.
+
+Enable floating mode explicitly using the dark-red overlay permission explanation. On Android 13+, the notification permission is optional. Floating ON creates a 64dp transparent arcade button over other apps. Tap the red surface once to call. Hold 0.45 seconds to drag; releasing saves its free position. Drag into REMOVE to turn floating mode off. Notification STOP also stops and remembers OFF. Switching OFF inside dude.call shows UNDO for three seconds. No automatic enable prompts on launch.
+
+The home-screen widget remains transparent and immediately calls on a single tap. The saved phone number and first-launch workflow remain unchanged. Do not uninstall the app to update: that erases the saved number.
+
+See CHANGELOG.md and QA-v1.3.md for details.
+
+---
+
 # dude.call
 
 A single-purpose, entirely native Android app. Black immersive screen, one giant glossy red 3D arcade button: touch it, release it, call the number you locked in during initial setup. No ads, accounts, analytics, tracking, internet permission, phonebook access, or in-app number editing after setup.

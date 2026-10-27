@@ -35,13 +35,16 @@ public final class ArcadeView extends View {
         void openSettings();
         void lockRotation(boolean locked);
         void setPrivateScreen(boolean privateScreen);
+        boolean isFloatingEnabled();
+        boolean isFloatingUndoAvailable();
+        void toggleFloating();
     }
     private static final int RED = 0xFFF20D17;
     private static final int WHITE = 0xFFF9F9FC;
     private static final int ENTRY = 0, CONFIRM = 1, MAIN = 2;
     private static final String[] KEYS = {"1","2","3","4","5","6","7","8","9","+","0","X"};
     private static final int V_MAIN = 1, V_INPUT = 2, V_LOCK = 3, V_CONFIRM_NUMBER = 4,
-            V_GO = 5, V_SETTINGS = 6, V_KEY = 100;
+            V_GO = 5, V_SETTINGS = 6, V_FLOAT = 7, V_KEY = 100;
 
     private final Events events;
     private final ArcadeAudio audio;
@@ -57,6 +60,7 @@ public final class ArcadeView extends View {
     private final RectF panelBounds = new RectF();
     private final RectF settingsBounds = new RectF();
     private final RectF mainHitBounds = new RectF();
+    private final RectF floatToggleBounds = new RectF();
 
     private int stage;
     private int insetL, insetT, insetR, insetB;
@@ -153,7 +157,16 @@ public final class ArcadeView extends View {
         float width = Math.max(dp(130), right - left), height = Math.max(dp(200), bottom - top);
         cx = (left + right) * .5f;
         cy = (top + bottom) * .5f;
-        mainDiameter = Math.min(width * .94f, height * 1.05f);
+        if (stage == MAIN) {
+            // Reserve room for a compact floating ON/OFF control below the dome.
+            float reserve = dp(60);
+            cy = (top + bottom - reserve) * .5f;
+            mainDiameter = Math.min(width * .94f, (height-reserve) * 1.05f);
+            float toggleW = Math.min(dp(198),width*.68f);
+            floatToggleBounds.set(cx-toggleW/2,bottom-dp(48),cx+toggleW/2,bottom-dp(10));
+        } else {
+            mainDiameter = Math.min(width * .94f, height * 1.05f);
+        }
         // Dome hitbox (not the black base); view from 30 degrees above.
         float rx = mainDiameter * .445f, ry = mainDiameter * .287f;
         mainHitBounds.set(cx-rx,cy-ry-dp(19),cx+rx,cy+ry-dp(19));
@@ -243,7 +256,10 @@ public final class ArcadeView extends View {
         layoutGeometry();
         if (stage == ENTRY) drawEntry(canvas);
         else if (stage == CONFIRM) drawConfirmation(canvas);
-        else drawMain(canvas);
+        else {
+            drawMain(canvas);
+            drawFloatingToggle(canvas);
+        }
         if (stage == MAIN && (showingPermission ||
                 (panelDismissStart > 0 && now() - panelDismissStart < 200))) drawPermission(canvas);
         if (stage == MAIN && !showingPermission && !message.isEmpty() && now() < messageUntil)
@@ -259,6 +275,7 @@ public final class ArcadeView extends View {
                         (!message.isEmpty() && now()<messageUntil)));
         if (animating) postInvalidateDelayed(16);
         else if (stage == ENTRY) postInvalidateDelayed(100);
+        else if (stage == MAIN && events.isFloatingUndoAvailable()) postInvalidateDelayed(100);
     }
 
     private void drawEntry(Canvas c) {
@@ -445,6 +462,25 @@ public final class ArcadeView extends View {
         }
     }
 
+    private void drawFloatingToggle(Canvas c) {
+        boolean enabled = events.isFloatingEnabled();
+        boolean undo = !enabled && events.isFloatingUndoAvailable();
+        // A low-profile arcade control: it does not cover or label the red dome.
+        gradient(c,floatToggleBounds,dp(14),new int[]{0xFF3C080D,0xFF160305},null);
+        stroke(c,floatToggleBounds,dp(14),enabled ? RED : 0xFF9E3038,dp(1.5f));
+        String label = undo ? "FLOATING OFF  ·  UNDO" : enabled ? "FLOATING ON" : "FLOATING OFF";
+        text(c,label,floatToggleBounds.centerX(),floatToggleBounds.centerY(),
+                fittedFont(label,floatToggleBounds.width()-dp(14),dp(13),dp(11)),
+                enabled ? WHITE : (undo ? 0xFFFFB4B8 : 0xFFE6B9BD),true);
+        // Tiny dot shows mode at a glance.
+        if (!undo) {
+            float x=floatToggleBounds.left+dp(12);
+            float y=floatToggleBounds.centerY();
+            fill(enabled ? RED : 0xFF666666);
+            c.drawCircle(x,y,dp(3),p);
+        }
+    }
+
     private void drawPermission(Canvas c) {
         int alpha=showingPermission?255:(int)(255*(1f-progress(panelDismissStart,200)));
         c.saveLayerAlpha(0,0,getWidth(),getHeight(),alpha);
@@ -499,6 +535,7 @@ public final class ArcadeView extends View {
         layoutGeometry();
         if (stage==MAIN) {
             if (showingPermission) return settingsBounds.contains(x,y)?23:-10;
+            if (floatToggleBounds.contains(x,y)) return 24;
             return insideEllipse(mainHitBounds,x,y)?1:-1;
         }
         if (stage==CONFIRM) {
@@ -579,6 +616,10 @@ public final class ArcadeView extends View {
                 else if (chosen==21) {stage=ENTRY;invalidate();}
                 else if (chosen==22) pressGo();
                 else if (chosen==23) {events.openSettings();}
+                else if (chosen==24) {
+                    audio.play(ArcadeAudio.Effect.SOFT_RELEASE,reducedMotion);
+                    events.toggleFloating();
+                }
             } else if(chosen>=2 && chosen<=13) {
                 audio.play(ArcadeAudio.Effect.SOFT_RELEASE,reducedMotion);
                 if(chosen==13 && removed>0) announce(removed+" digits deleted");
@@ -706,7 +747,7 @@ public final class ArcadeView extends View {
                 ids.add(V_LOCK);
             } else if (stage==CONFIRM) {ids.add(V_CONFIRM_NUMBER);ids.add(V_GO);}
             else if(showingPermission) {ids.add(V_SETTINGS);}
-            else ids.add(V_MAIN);
+            else {ids.add(V_MAIN);ids.add(V_FLOAT);}
             return ids;
         }
         @Override public AccessibilityNodeInfo createAccessibilityNodeInfo(int id) {
@@ -734,6 +775,9 @@ public final class ArcadeView extends View {
             else if(id==V_CONFIRM_NUMBER) {box=numberBounds;label=spokenNumber()+". Double tap to edit";}
             else if(id==V_GO) {box=goBounds;label="Let's go";}
             else if(id==V_SETTINGS) {box=settingsBounds;label="Open Settings";}
+            else if(id==V_FLOAT) {box=floatToggleBounds;
+                label=events.isFloatingUndoAvailable()?"Floating off. Undo":
+                        events.isFloatingEnabled()?"Floating on. Turn off":"Floating off. Turn on";}
             else {box=keyBounds[id-V_KEY];label=KEYS[id-V_KEY].equals("X")?"Delete":
                     KEYS[id-V_KEY].equals("+")?"Toggle plus prefix":KEYS[id-V_KEY];}
             n.setContentDescription(label);
@@ -780,6 +824,7 @@ public final class ArcadeView extends View {
             else if(id==V_CONFIRM_NUMBER)stage=ENTRY;
             else if(id==V_GO)pressGo();
             else if(id==V_SETTINGS)events.openSettings();
+            else if(id==V_FLOAT)events.toggleFloating();
             invalidate();sendEvent(id,AccessibilityEvent.TYPE_VIEW_CLICKED);
             return true;
         }

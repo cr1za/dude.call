@@ -82,19 +82,15 @@ public final class WidgetCallActivity extends Activity {
             }
         }
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        long now = SystemClock.elapsedRealtime();
-        long previous = prefs.getLong("last_widget_call_elapsed", 0L);
-        if (previous > 0 && now >= previous && now - previous < 5000L) {
-            // Double tapping the launcher widget must never place duplicate calls.
+        if (!CallGate.tryAcquire(prefs)) {
             finish();
             return;
         }
-        prefs.edit().putLong("last_widget_call_elapsed", now).commit();
         try {
             Intent intent = new Intent(Intent.ACTION_CALL, Uri.fromParts("tel", number, null));
             startActivity(intent);
         } catch (SecurityException | ActivityNotFoundException ignored) {
-            prefs.edit().remove("last_widget_call_elapsed").apply();
+            CallGate.rollback(prefs);
             // Android controls phone/call failure dialogs. Do not silently retry or place two calls.
         } finally {
             finish();
