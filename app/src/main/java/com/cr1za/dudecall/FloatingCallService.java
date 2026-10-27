@@ -124,8 +124,8 @@ public final class FloatingCallService extends Service {
                 (NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
         if (notificationManager != null) {
             NotificationChannel ch = new NotificationChannel(CHANNEL,
-                    "Floating call button", NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("The floating red button, including a STOP action");
+                    "OBIC Floating Button", NotificationManager.IMPORTANCE_LOW);
+            ch.setDescription("One Button Instant Caller: floating red button with a STOP control");
             ch.setSound(null, null);
             notificationManager.createNotificationChannel(ch);
         }
@@ -141,7 +141,7 @@ public final class FloatingCallService extends Service {
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this,CHANNEL)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("dude.call floating button")
+                .setContentTitle("OBIC floating button")
                 .setContentText("Tap to call · hold and drag to move or REMOVE")
                 .setContentIntent(main)
                 .setOngoing(true)
@@ -340,7 +340,7 @@ public final class FloatingCallService extends Service {
         String number=prefs.getString(NUMBER,null);
         if (number==null || !number.matches("\\+?[0-9]{5,15}")) return;
         if (checkSelfPermission(Manifest.permission.CALL_PHONE)!=PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this,"Enable phone-call permission in dude.call",Toast.LENGTH_SHORT).show();
+            Toast.makeText(this,"Enable phone-call permission in OBIC",Toast.LENGTH_SHORT).show();
             return;
         }
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE)==PackageManager.PERMISSION_GRANTED) {

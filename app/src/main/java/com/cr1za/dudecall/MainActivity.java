@@ -360,7 +360,7 @@ public final class MainActivity extends Activity implements ArcadeView.Events {
         title.setGravity(android.view.Gravity.CENTER);
         body.addView(title);
         TextView text = new TextView(this);
-        text.setText("Allow dude.call to display the red call button over other apps? " +
+        text.setText("Allow OBIC to display the red call button over other apps? " +
                 "Android requires your permission. You can turn it OFF anytime.");
         text.setTextColor(Color.WHITE);
         text.setTextSize(15);

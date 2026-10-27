@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="app_name">One Button Instant Caller (OBIC)</string>
+    <string name="app_short_name">OBIC</string>
+    <string name="widget_picker_name">OBIC Call Button</string>
     <string name="widget_button_label">Call now</string>
-    <string name="widget_description">Glossy red arcade call button, floating on your home screen with a transparent background.</string>
+    <string name="widget_description">OBIC: glossy red arcade call button on your home screen, with a transparent background.</string>
 </resources>
